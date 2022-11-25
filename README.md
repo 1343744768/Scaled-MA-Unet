@@ -5,5 +5,5 @@ A general semantic segmentation framework, integrating MA-Unet, Unet, UnetPlusPl
 Reference
 ------------------------
 https://github.com/bubbliiiing/unet-pytorch  <br>
-https://github.com/ggyyzm/pytorch_segmentation  <br>
+https://github.com/yassouali/pytorch-segmentation  <br>
 https://github.com/qubvel/segmentation_models.pytorch  <br>
