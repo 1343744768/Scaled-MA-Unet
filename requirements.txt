@@ -1,0 +1,22 @@
+# Usage: pip install -r requirements.txt
+
+# Base ----------------------------------------
+# python3.7 is recommended !
+torch==1.8.0
+torchvision==0.9.0
+# Other versions of pytorch and python may report errors during DDP training
+scipy>=1.4.1
+numpy>=1.18.5
+matplotlib>=3.1.2
+opencv_python>=4.1.2.30
+tqdm>=4.60.0
+Pillow>=8.2.0
+h5py>=2.10.0
+sympy>=1.10.1
+
+# train for other models ---------------
+# segmentation_models_pytorch==0.2.1
+
+# onnx inference ----------------
+# onnx
+# onnxruntime-gpu
