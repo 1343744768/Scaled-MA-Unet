@@ -5,9 +5,8 @@ Quick Start Examples
 ========================
 Install
 ------------------------
-1. For single GPU training, please install the environment in "requirement for training with singe GPU.txt".<br>
-2. For multi-GPU training, please install the environment in "requirement for training with multi-GPU.txt".<br>
-3. Besides, Python3.7 is recommended.
+``` pip install -r requirements.txt <br>
+It is worth noting that python 3.7 and torch 1.8 are recommended
 
 Preparation of datasets
 ------------------------
