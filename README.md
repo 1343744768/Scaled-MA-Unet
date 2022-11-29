@@ -5,7 +5,7 @@ Quick Start Examples
 ========================
 Install
 ------------------------
-``` pip install -r requirements.txt ```
+``` pip install -r requirements.txt ``` <br>
 It is worth noting that python 3.7 and torch 1.8 are recommended
 
 Preparation of datasets
@@ -14,11 +14,7 @@ Preparation of datasets
    * The name of original image and its corresponding label must be consistent, their format can be different(important) <br>
       `Image: cat_00001.jpg ; Label: cat_00001.png`
 2. Put all the original images in folder “JPEGImages” and all the labels in folder “SegmentationClass”.<br>
-   * The default format is that the original image is ".jpg" format, the label is ".png" format. <br>
-   * If your dataset format is different, please modify the format in the 82 and 83 lines of code in folder "utils/dataloader.py", as follow: <br>
-       `jpg = Image.open(os.path.join(os.path.join(self.dataset_path, "VOC2007/JPEGImages"), name + ".jpg"))` <br>
-       `png = Image.open(os.path.join(os.path.join(self.dataset_path, "VOC2007/SegmentationClass"), name + ".png"))`
-3. Run "vocdevkit/voc2unet" to divides training sets and test sets. <br>
+3. Run "voc2unet" to divides training sets and test sets. <br>
    * If your label is not in png format, modify the code in line 17, as follow: <br>
        `if seg.endswith(".png"):`
    * You can also modify the 12 lines of code to divide the training set and test set according to other proportions, as follow. The default ratio is 8:2. <br>
@@ -28,24 +24,15 @@ Preparation of datasets
 Training
 ------------------------
 1. Training with Multi-GPU. （recommended） <br>
-    `python -m torch.distributed.launch --nproc_per_node=num_gpu train_multi_GPU.py` <br>
-    If the memory is not released after training， use `pgrep python | xargs kill -s 9` <br>
-   * It is worth noting that in the hyperparameters, num_classes should be set to the number of categories plus 1. <br>
-   For example, if you want to segmentation cat and dog in the images, although there are only two categories, <br>
-   you need to set it to 3, because the label of the background is 0. 
-   * You can modify the hyperparameters in "train_multi_GPU.py" after line 150 to get better training results. <br>
-   * Some tips for training: <br>
-   (1) For 256x256 resolution input images, when the batchsize is 16, 10GB memory of gpu is required. <br>
-   (2) If your memory of single GPU is not large(<12), it is recommended to use mixed accuracy training and sync_bn. <br>
-   (3) If your memory of single GPU is large(>16), set the "input_shape" as large as possible, such as 512, 800, 1024. <br>
-   (4) The hyperparameters "batch_size" is total batchsize for all GPU you used, If the batch of a single gpu is less than 4, use sync_bn. <br>
-   * The model after each epoch of training will be saved in the "logs" folder. <br>
+   set distributed = True
+    `python -m torch.distributed.launch --nproc_per_node=num_gpu train.py` <br>
+    If the memory is not released after training, use `pgrep python | xargs kill -s 9` <br>
  
 2. Training with single GPU. <br>
     `python train.py`
-   * It is worth noting that in the hyperparameters, num_classes should be set to the number of categories plus 1. <br>
-   * You can modify the hyperparameters in "train.py" after line 15 to get better training results. <br>
-   * The model after each epoch of training will be saved in the "logs" folder. <br>
+* It is worth noting that in the hyperparameters, num_classes should be set to the number of categories plus 1. <br>
+  For example, if you want to segmentation cat and dog in the images, although there are only two categories, <br>
+  you need to set it to 3, because the label of the background is 0. 
 
 Prediction and Validation
 ------------------------
