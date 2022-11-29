@@ -1,5 +1,5 @@
 # Scaled-MA-Unet
-An improved Multiattention-Unet is divided into four versions of different scales. The original version can refer to `https://github.com/1343744768/Multiattention-UNet`. In addition, we also provide API for other models from segmentation-models-pytorch, such as Unet, UnetPlusPlus, MAnet, Linknet, FPN, PSPNet, DeepLabV3, DeepLabV3Plus.
+An improved Multiattention-Unet is divided into four versions of different scales. The original version can refer to [code](https://github.com/1343744768/Multiattention-UNet). In addition, we also provide API for other models from segmentation-models-pytorch, such as Unet, UnetPlusPlus, MAnet, Linknet, FPN, PSPNet, DeepLabV3, DeepLabV3Plus.
 
 Quick Start Examples
 ========================
