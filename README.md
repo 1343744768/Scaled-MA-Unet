@@ -5,7 +5,7 @@ Quick Start Examples
 ========================
 Install
 ------------------------
-``` pip install -r requirements.txt <br>
+``` pip install -r requirements.txt ```
 It is worth noting that python 3.7 and torch 1.8 are recommended
 
 Preparation of datasets
