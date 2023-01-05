@@ -268,7 +268,7 @@ if __name__ == "__main__":
     parser.add_argument("--sync_bn", default=False, type=bool, help='Use sync batch normalization, only used in DDP')
     parser.add_argument("--amp", default=False, type=bool, help="Use torch.cuda.amp for mixed precision training, only used in DDP")
     parser.add_argument("--num_workers", default=4, type=int)
-    parser.add_argument("--device_id", default='0, 1, 2, 3', type=str, help="Numbers of cuda want to use. if you only have one GPU, default=0")
+    parser.add_argument("--device_id", default='0', type=str, help="Numbers of cuda want to use. if you only have one GPU, default=0")
 
     ### Hyperparameter
     parser.add_argument("--input_shape", default=[640, 640], type=list, help='Image size for CNN after Data Augmentation')
