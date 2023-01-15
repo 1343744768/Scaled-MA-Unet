@@ -9,7 +9,9 @@ from nets.MA_UNet import MA_Unet_T, MA_Unet_S, MA_Unet_B, MA_Unet_L
 from nets.unet_training import weights_init
 from utils.callbacks import LossHistory, EvalCallback
 from utils.dataloader import UnetDataset, unet_dataset_collate
+from utils.pretrain_loader import MAEDataset, mae_dataset_collate
 from utils.utils_fit import fit_one_epoch
+from utils.utils_mae import mae_one_epoch
 from torch.optim.lr_scheduler import _LRScheduler
 import warnings
 warnings.filterwarnings('ignore')
@@ -44,10 +46,12 @@ def main(args):
 
     pretrained = True if model_path is not None else False
 
-    eval_period, dice_loss, focal_loss, num_workers, VOCdevkit_path, save_dir, save_period, Freeze_Train, batch_size, lr= \
-        args.eval_period, args.dice_loss, args.focal_loss, args.num_workers, args.dataset, args.save_dir, args.save_period, args.Freeze_Train, args.batch_size, args.lr
+    eval_period, dice_loss, focal_loss, num_workers, VOCdevkit_path, save_dir, save_period, batch_size, lr= \
+        args.eval_period, args.dice_loss, args.focal_loss, args.num_workers, args.dataset, args.save_dir, args.save_period, args.batch_size, args.lr
 
     mosaic, end_mosaic_epoch, cutout, rotate, flip_rl, flip_ud, scale, color_transform = args.mosaic, args.end_mosaic_epoch, args.cutout, args.rotate, args.flip_rl, args.flip_ud, args.scale, args.color_transform
+
+    MAE_training, fill_color, coeffi_num, MAE_loss, hole_len = args.pre_training, args.fill_color, args.coeffi_num, args.MAE_loss, args.hole_len
 
     cls_weights = np.ones([num_classes], np.float32)
     ngpus_per_node = torch.cuda.device_count()
@@ -143,11 +147,7 @@ def main(args):
     if Cuda:
         if distributed:    # DDP
             model = model.cuda(local_rank)
-            if Freeze_Train or args.model_type == None:
-                find_para = True
-            else:
-                find_para = False
-            model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=find_para)
+            model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank], output_device=local_rank)
             model_without_ddp = model.module
             cudnn.benchmark = True
         else:
@@ -160,30 +160,40 @@ def main(args):
                 cudnn.benchmark = True
                 model = model.cuda()
                 model_without_ddp = model
-
+    else:
+        raise ValueError("请使用GPU训练，没有GPU建议删除源码")
 
     with open(os.path.join(VOCdevkit_path, "VOC2007/ImageSets/Segmentation/train.txt"),"r") as f:
         train_lines = f.readlines()
     with open(os.path.join(VOCdevkit_path, "VOC2007/ImageSets/Segmentation/val.txt"),"r") as f:
         val_lines = f.readlines()
-    num_train = len(train_lines)
-    num_val = len(val_lines)
 
     if args.adam:
-        optimizer = optim.Adam(model_without_ddp.parameters(), lr)
+        optimizer = optim.Adam(filter(lambda p: p.requires_grad, model_without_ddp.parameters()), lr)
     else:
-        optimizer = optim.SGD(model_without_ddp.parameters(), lr, momentum=0.843, weight_decay=0.00036, nesterov=True)
+        optimizer = optim.SGD(filter(lambda p: p.requires_grad, model_without_ddp.parameters()), lr, momentum=0.843, weight_decay=0.00036, nesterov=True)
 
-    epoch_step = num_train // batch_size
-    epoch_step_val = num_val // batch_size
+
+
+    if MAE_training:
+        train_dataset = MAEDataset(VOCdevkit_path, input_shape, True, max_h_size=hole_len[0], max_w_size=hole_len[1], fill_color=fill_color, coeffi_num=coeffi_num)
+        val_dataset = MAEDataset(VOCdevkit_path, input_shape, False, max_h_size=hole_len[0], max_w_size=hole_len[1], fill_color=fill_color, coeffi_num=coeffi_num)
+        num_train = len(train_dataset)
+        num_val = len(val_dataset)
+        epoch_step = num_train // batch_size
+        epoch_step_val = num_val // batch_size
+
+    else:
+        train_dataset = UnetDataset(train_lines, input_shape, num_classes, True, VOCdevkit_path,  mosaic=mosaic, rotate=rotate, cutout=cutout, scale=scale, flip_rl=flip_rl, flip_ud=flip_ud, color_trans=color_transform)
+        val_dataset = UnetDataset(val_lines, input_shape, num_classes, False, VOCdevkit_path)
+        num_train = len(train_lines)
+        num_val = len(val_lines)
+        epoch_step = num_train // batch_size
+        epoch_step_val = num_val // batch_size
 
     if epoch_step == 0 or epoch_step_val == 0:
         raise ValueError("数据集过小，无法继续进行训练，请扩充数据集。")
 
-    train_dataset = UnetDataset(train_lines, input_shape, num_classes, True, VOCdevkit_path,  mosaic=mosaic, rotate=rotate, cutout=cutout, scale=scale, flip_rl=flip_rl, flip_ud=flip_ud, color_trans=color_transform)
-    val_dataset = UnetDataset(val_lines, input_shape, num_classes, False, VOCdevkit_path)
-
-    # iter_per_epoch = len(train_dataset)
     warmup_scheduler = WarmUpLR(optimizer, epoch_step * warmup_epoch)
 
     if args.lrf is not None:
@@ -202,10 +212,16 @@ def main(args):
         train_sampler, val_sampler = None, None
         shuffle = True
 
-    train_loader = DataLoader(train_dataset, shuffle=shuffle, batch_size=batch_size, num_workers=num_workers, pin_memory=True,
-                                drop_last=True, collate_fn=unet_dataset_collate, sampler=train_sampler)
-    valid_loader = DataLoader(val_dataset, shuffle=shuffle, batch_size=batch_size, num_workers=num_workers, pin_memory=True,
-                                drop_last=True, collate_fn=unet_dataset_collate, sampler=val_sampler)
+    if MAE_training:
+        train_loader = DataLoader(train_dataset, shuffle=shuffle, batch_size=batch_size, num_workers=num_workers,
+                                  pin_memory=True, drop_last=True, collate_fn=mae_dataset_collate, sampler=train_sampler)
+        valid_loader = DataLoader(val_dataset, shuffle=shuffle, batch_size=batch_size, num_workers=num_workers,
+                                  pin_memory=True, drop_last=True, collate_fn=mae_dataset_collate, sampler=val_sampler)
+    else:
+        train_loader = DataLoader(train_dataset, shuffle=shuffle, batch_size=batch_size, num_workers=num_workers, pin_memory=True,
+                                    drop_last=True, collate_fn=unet_dataset_collate, sampler=train_sampler)
+        valid_loader = DataLoader(val_dataset, shuffle=shuffle, batch_size=batch_size, num_workers=num_workers, pin_memory=True,
+                                    drop_last=True, collate_fn=unet_dataset_collate, sampler=val_sampler)
 
     if resume:
         if local_rank == 0:
@@ -225,14 +241,29 @@ def main(args):
     else:
         eval_callback = None
 
+    if MAE_training:
+        assert num_classes == 3, f'num_classes must equal 3 during pretraining with MAE'
+        if MAE_loss == 'l1':
+            loss_fuc = torch.nn.L1Loss()
+        elif MAE_loss == 'smooth l1':
+            loss_fuc = torch.nn.SmoothL1Loss()
+        else:
+            loss_fuc = torch.nn.MSELoss()
+
     for epoch in range(start_epoch, num_epoch):
         if distributed:
             train_sampler.set_epoch(epoch)
         if epoch >= end_mosaic_epoch:
             train_loader.dataset.end_mosaic = True
-        fit_one_epoch(model, model_without_ddp, loss_history, eval_callback, optimizer, epoch, warmup_scheduler, warmup_epoch, epoch_step, epoch_step_val, train_loader, valid_loader,
-                      num_epoch, Cuda, dice_loss, focal_loss, cls_weights, num_classes, fp16, scaler, save_period, save_dir, local_rank, lr_scheduler)
 
+        if MAE_training:
+            mae_one_epoch(model, model_without_ddp, optimizer, epoch, warmup_scheduler, warmup_epoch, epoch_step, epoch_step_val, train_loader, valid_loader,
+                      num_epoch, Cuda, loss_fuc, fp16, scaler, save_period, save_dir, local_rank, lr_scheduler)
+        else:
+            fit_one_epoch(model, model_without_ddp, loss_history, eval_callback, optimizer, epoch, warmup_scheduler,
+                          warmup_epoch, epoch_step, epoch_step_val, train_loader, valid_loader,
+                          num_epoch, Cuda, dice_loss, focal_loss, cls_weights, num_classes, fp16, scaler, save_period,
+                          save_dir, local_rank, lr_scheduler)
         if epoch >= warmup_epoch:
             lr_scheduler.step()
 
@@ -248,37 +279,42 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     ### training MA-UNet, if u want to train other models, please set model_type = None in line 251
-    parser.add_argument("--model_type", default='base', type=str, help=" ['tiny', 'small', 'base', 'large', None] ")
+    parser.add_argument("--model_type", default='small', type=str, help=" ['tiny', 'small', 'base', 'large', None] ")
     parser.add_argument("--use_pos_embed", default=False, type=bool, help='Whether to enable absolute position embedding, input size of prediction after enabling will be fixed')
-    parser.add_argument("--model_path", default=None, type=str, help='Pretrained model, if not None, use it')
-    parser.add_argument("--Freeze_Train", default=False, type=bool, help='Freeze the backbone to train')
-    parser.add_argument("--Freeze_epoch", default=None, type=int, help='Number epochs of freeze the backbone to train')
+    parser.add_argument("--model_path", default='mae_logs/exp-100-train_loss0.001-val_loss0.001.pth', type=str, help='Pretrained model, if not None, use it')
 
     ### training other model        pip install segmentation_models_pytorch
-    ### if u want to train other models, please set model_type=None in line 251, otherwise training MA-UNet
+    ### if u want to train other models, please set model_type default=None in line 282, otherwise training with MA-UNet
     ### https://github.com/qubvel/segmentation_models.pytorch
     parser.add_argument("--model_name", default='UnetPlusPlus', type=str, help="[Unet, UnetPlusPlus, MAnet, Linknet, FPN, PSPNet, DeepLabV3, DeepLabV3Plus, PAN]")
     parser.add_argument("--backbone_name", default='vgg16_bn', type=str, help='More than 100 backbone are available, see github for details')
     ### ['vgg16_bn', 'resnet34', 'resnext50_32x4d', 'timm-resnest50d', 'densenet121', 'efficientnet-b0' , ...]
     parser.add_argument("--use_pretrained", default=True, type=bool, help='Backbone initialization using pretrained weight from Imagenet')
 
+    ### Use MAE to pre-train
+    parser.add_argument("--pre_training", default=False, type=bool, help='Use MAE to pre-train')
+    parser.add_argument("--fill_color", default=(0, 0, 0), type=tuple, help='fill color in the hole')
+    parser.add_argument("--coeffi_num", default=2, type=int, help='coefficient of the number holes')
+    parser.add_argument("--hole_len", default=(5, 5), type=tuple)
+    parser.add_argument("--MAE_loss", default='l2', type=str, help='l1, smooth l1, l2')
+
     ### DDP mode. If distributed=True training with DDP mode, use python -m torch.distributed.launch --nproc_per_node=number_GPUs train.py
     parser.add_argument("--local_rank", default=-1, type=int, help="Don't change it")
-    parser.add_argument("--distributed", default=False, type=bool, help="Use DDP for training")
-    parser.add_argument("--sync_bn", default=False, type=bool, help='Use sync batch normalization, only used in DDP')
-    parser.add_argument("--amp", default=False, type=bool, help="Use torch.cuda.amp for mixed precision training, only used in DDP")
+    parser.add_argument("--distributed", default=True, type=bool, help="Use DDP for training")
+    parser.add_argument("--sync_bn", default=True, type=bool, help='Use sync batch normalization, only used in DDP')
+    parser.add_argument("--amp", default=True, type=bool, help="Use torch.cuda.amp for mixed precision training, only used in DDP")
     parser.add_argument("--num_workers", default=4, type=int)
-    parser.add_argument("--device_id", default='0', type=str, help="Numbers of cuda want to use. if you only have one GPU, default=0")
+    parser.add_argument("--device_id", default='0,1,2,3', type=str, help="Numbers of cuda want to use. if you only have one GPU, default=0")
 
     ### Hyperparameter
-    parser.add_argument("--input_shape", default=[640, 640], type=list, help='Image size for CNN after Data Augmentation')
+    parser.add_argument("--input_shape", default=[640, 640], type=list, help='[H, W]. Image size for CNN after Data Augmentation')
     parser.add_argument("--adam", default=True, type=bool, help="True: adam, False: SGD; If number of data < 2000 use adam, else use SGD")
     parser.add_argument("--lr", default=1e-3, type=float, help='Learning rate.')
     parser.add_argument("--lrf", default=1e-6, type=float, help='Final learning rate. If it is not None, use CosineAnnealing, else use lr_step')
-    parser.add_argument("--num_epoch", default=200, type=int, help='total epochs to train')
+    parser.add_argument("--num_epoch", default=100, type=int, help='total epochs to train')
     parser.add_argument("--warmup_epoch", default=3, type=int, help='num epochs for warm up')
-    parser.add_argument("--num_classes", default=21, type=int, help='Actual category quantity plus 1 (background)')
-    parser.add_argument("--batch_size", default=16, type=int, help='Total batchsize')
+    parser.add_argument("--num_classes", default=7, type=int, help='Actual category quantity plus 1 (background)')
+    parser.add_argument("--batch_size", default=8, type=int, help='Total batchsize')
     parser.add_argument("--dataset", default='VOCdevkit', type=str, help='Dataset path')
     """
     --dataset/
@@ -299,7 +335,7 @@ if __name__ == "__main__":
     parser.add_argument("--focal_loss", default=True, type=bool, help='if all kinds of samples is unbalanced, use this, else ce_loss is default set')
     parser.add_argument("--eval_period", default=5, type=int, help='Evaluate the performance of the valid datasets after training the number epoch')
 
-    ###data pro
+    ###data aug during online training
     parser.add_argument("--mosaic", default=0.0, type=float, help='Probability of using mosaic for data enhancement')
     parser.add_argument("--end_mosaic_epoch", default=50, type=float, help='after this epoch, end mosaic datapro')
     parser.add_argument("--cutout", default=0.0, type=float, help='Probability of using cutout for data enhancement')
