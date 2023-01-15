@@ -281,7 +281,7 @@ if __name__ == "__main__":
     ### training MA-UNet, if u want to train other models, please set model_type = None in line 251
     parser.add_argument("--model_type", default='small', type=str, help=" ['tiny', 'small', 'base', 'large', None] ")
     parser.add_argument("--use_pos_embed", default=False, type=bool, help='Whether to enable absolute position embedding, input size of prediction after enabling will be fixed')
-    parser.add_argument("--model_path", default='mae_logs/exp-100-train_loss0.001-val_loss0.001.pth', type=str, help='Pretrained model, if not None, use it')
+    parser.add_argument("--model_path", default=None, type=str, help='Pretrained model, if not None, use it')
 
     ### training other model        pip install segmentation_models_pytorch
     ### if u want to train other models, please set model_type default=None in line 282, otherwise training with MA-UNet
