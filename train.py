@@ -285,9 +285,10 @@ if __name__ == "__main__":
 
     ### training other model        pip install segmentation_models_pytorch
     ### if u want to train other models, please set model_type default=None in line 282, otherwise training with MA-UNet
+    ### such as model_name default='Unet'; backbone_name default='vgg16_bn'
     ### https://github.com/qubvel/segmentation_models.pytorch
-    parser.add_argument("--model_name", default='UnetPlusPlus', type=str, help="[Unet, UnetPlusPlus, MAnet, Linknet, FPN, PSPNet, DeepLabV3, DeepLabV3Plus, PAN]")
-    parser.add_argument("--backbone_name", default='vgg16_bn', type=str, help='More than 100 backbone are available, see github for details')
+    parser.add_argument("--model_name", default=None, type=str, help="['Unet', 'UnetPlusPlus', 'MAnet', 'Linknet', 'FPN', 'PSPNet', 'DeepLabV3', 'DeepLabV3Plus', 'PAN']")
+    parser.add_argument("--backbone_name", default=None, type=str, help='More than 100 backbone are available, see github for details')
     ### ['vgg16_bn', 'resnet34', 'resnext50_32x4d', 'timm-resnest50d', 'densenet121', 'efficientnet-b0' , ...]
     parser.add_argument("--use_pretrained", default=True, type=bool, help='Backbone initialization using pretrained weight from Imagenet')
 
