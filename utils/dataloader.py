@@ -97,7 +97,7 @@ class UnetDataset(Dataset):
         else:
             img_mode = '.' + os.listdir(os.path.join(self.dataset_path, "VOC2007/JPEGImages"))[0].split('.')[1]
             lab_mode = '.' + os.listdir(os.path.join(self.dataset_path, "VOC2007/SegmentationClass"))[0].split('.')[1]
-            jpg = Image.open(os.path.join(os.path.join(self.dataset_path, "VOC2007/JPEGImages"), name + img_mode))
+            jpg = Image.open(os.path.join(os.path.join(self.dataset_path, "VOC2007/JPEGImages"), name + img_mode)).convert('RGB')
             png = Image.open(os.path.join(os.path.join(self.dataset_path, "VOC2007/SegmentationClass"), name + lab_mode))
 
             jpg, png = self.get_random_data(jpg, png, self.input_shape, random=self.train)
@@ -208,7 +208,7 @@ class UnetDataset(Dataset):
         lab_mode = os.listdir(os.path.join(self.dataset_path, 'VOC2007/SegmentationClass'))[0].split('.')[1]
 
         for im in img_list:
-            img = os.path.join(img_path, im+'.'+img_mode)
+            img = os.path.join(img_path, im+'.'+img_mode).convert('RGB')
             lab = os.path.join(lab_path, im+'.'+lab_mode)
             # 打开图片
             image = Image.open(img)
