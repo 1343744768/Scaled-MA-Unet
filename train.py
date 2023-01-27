@@ -5,7 +5,7 @@ import torch.backends.cudnn as cudnn
 import torch.distributed as dist
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from nets.MA_UNet import MA_Unet_T, MA_Unet_S, MA_Unet_B, MA_Unet_L, MA_Unet_X
+from nets.MA_UNet import MA_Unet_T, MA_Unet_S, MA_Unet_B, MA_Unet_L
 from nets.unet_training import weights_init
 from utils.callbacks import LossHistory, EvalCallback
 from utils.dataloader import UnetDataset, unet_dataset_collate
@@ -53,8 +53,8 @@ def main(args):
 
     MAE_training, fill_color, coeffi_num, MAE_loss, hole_len = args.pre_training, args.fill_color, args.coeffi_num, args.MAE_loss, args.hole_len
 
-    #cls_weights = np.ones([num_classes], np.float32)
-    cls_weights = np.array([1, 5], np.float32)
+    cls_weights = np.ones([num_classes], np.float32)
+    # cls_weights = np.array([1, 5], np.float32)
     ngpus_per_node = torch.cuda.device_count()
 
     if distributed:
@@ -83,14 +83,10 @@ def main(args):
             if local_rank == 0:
                 print('use basic model')
             model = MA_Unet_B(num_classes=num_classes, input_size=input_shape[0], use_pos_embed=use_pos_embed)
-        elif args.model_type == 'large':
+        else:
             if local_rank == 0:
                 print('use large model')
             model = MA_Unet_L(num_classes=num_classes, input_size=input_shape[0], use_pos_embed=use_pos_embed)
-        else:
-            if local_rank == 0:
-                print('use Xlarge model')
-            model = MA_Unet_XL(num_classes=num_classes, input_size=input_shape[0], use_pos_embed=use_pos_embed)
 
     else:
         from segmentation_models_pytorch import Unet, UnetPlusPlus, MAnet, Linknet, FPN, PSPNet, DeepLabV3, DeepLabV3Plus, PAN
@@ -284,7 +280,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     ### training MA-UNet, if u want to train other models, please set model_type = None in line 251
-    parser.add_argument("--model_type", default='base', type=str, help=" ['tiny', 'small', 'base', 'large', 'Xlarge', None] ")
+    parser.add_argument("--model_type", default='base', type=str, help=" ['tiny', 'small', 'base', 'large', None] ")
     parser.add_argument("--use_pos_embed", default=True, type=bool, help='Whether to enable absolute position embedding, input size of prediction after enabling will be fixed')
     parser.add_argument("--model_path", default=None, type=str, help='Pretrained model, if not None, use it')
 
