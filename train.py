@@ -5,7 +5,7 @@ import torch.backends.cudnn as cudnn
 import torch.distributed as dist
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from nets.MA_UNet import MA_Unet_T, MA_Unet_S, MA_Unet_B, MA_Unet_L
+from nets.MA_UNet import MA_Unet_T, MA_Unet_S, MA_Unet_B, MA_Unet_L, MA_Unet_X
 from nets.unet_training import weights_init
 from utils.callbacks import LossHistory, EvalCallback
 from utils.dataloader import UnetDataset, unet_dataset_collate
@@ -53,7 +53,8 @@ def main(args):
 
     MAE_training, fill_color, coeffi_num, MAE_loss, hole_len = args.pre_training, args.fill_color, args.coeffi_num, args.MAE_loss, args.hole_len
 
-    cls_weights = np.ones([num_classes], np.float32)
+    #cls_weights = np.ones([num_classes], np.float32)
+    cls_weights = np.array([1, 5], np.float32)
     ngpus_per_node = torch.cuda.device_count()
 
     if distributed:
@@ -82,10 +83,14 @@ def main(args):
             if local_rank == 0:
                 print('use basic model')
             model = MA_Unet_B(num_classes=num_classes, input_size=input_shape[0], use_pos_embed=use_pos_embed)
-        else:
+        elif args.model_type == 'large':
             if local_rank == 0:
                 print('use large model')
             model = MA_Unet_L(num_classes=num_classes, input_size=input_shape[0], use_pos_embed=use_pos_embed)
+        else:
+            if local_rank == 0:
+                print('use Xlarge model')
+            model = MA_Unet_XL(num_classes=num_classes, input_size=input_shape[0], use_pos_embed=use_pos_embed)
 
     else:
         from segmentation_models_pytorch import Unet, UnetPlusPlus, MAnet, Linknet, FPN, PSPNet, DeepLabV3, DeepLabV3Plus, PAN
@@ -169,7 +174,7 @@ def main(args):
         val_lines = f.readlines()
 
     if args.adam:
-        optimizer = optim.Adam(filter(lambda p: p.requires_grad, model_without_ddp.parameters()), lr)
+        optimizer = optim.AdamW(filter(lambda p: p.requires_grad, model_without_ddp.parameters()), lr)
     else:
         optimizer = optim.SGD(filter(lambda p: p.requires_grad, model_without_ddp.parameters()), lr, momentum=0.843, weight_decay=0.00036, nesterov=True)
 
@@ -279,13 +284,12 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     ### training MA-UNet, if u want to train other models, please set model_type = None in line 251
-    parser.add_argument("--model_type", default='small', type=str, help=" ['tiny', 'small', 'base', 'large', None] ")
-    parser.add_argument("--use_pos_embed", default=False, type=bool, help='Whether to enable absolute position embedding, input size of prediction after enabling will be fixed')
-    parser.add_argument("--model_path", default=None, type=str, help='Pretrained model path, if not None, use it')
+    parser.add_argument("--model_type", default='base', type=str, help=" ['tiny', 'small', 'base', 'large', 'Xlarge', None] ")
+    parser.add_argument("--use_pos_embed", default=True, type=bool, help='Whether to enable absolute position embedding, input size of prediction after enabling will be fixed')
+    parser.add_argument("--model_path", default=None, type=str, help='Pretrained model, if not None, use it')
 
     ### training other model        pip install segmentation_models_pytorch
-    ### if u want to train other models, please set model_type default=None in line 282, otherwise training with MA-UNet
-    ### such as model_name default='Unet'; backbone_name default='vgg16_bn'
+    ### if u want to train other models, please set model_type default=None in line 287, otherwise training with MA-UNet
     ### https://github.com/qubvel/segmentation_models.pytorch
     parser.add_argument("--model_name", default=None, type=str, help="['Unet', 'UnetPlusPlus', 'MAnet', 'Linknet', 'FPN', 'PSPNet', 'DeepLabV3', 'DeepLabV3Plus', 'PAN']")
     parser.add_argument("--backbone_name", default=None, type=str, help='More than 100 backbone are available, see github for details')
@@ -299,22 +303,22 @@ if __name__ == "__main__":
     parser.add_argument("--hole_len", default=(5, 5), type=tuple)
     parser.add_argument("--MAE_loss", default='l2', type=str, help='l1, smooth l1, l2')
 
-    ### DDP mode. If distributed=True training with DDP mode, use python -m torch.distributed.launch --nproc_per_node=number_GPUs train.py
+    ### DDP mode. If distributed=True training with DDP mode, use python -m torch.distributed.launch (torch.distributed.run, >=torch1.10) --nproc_per_node=number_GPUs train.py
     parser.add_argument("--local_rank", default=-1, type=int, help="Don't change it")
-    parser.add_argument("--distributed", default=True, type=bool, help="Use DDP for training")
-    parser.add_argument("--sync_bn", default=True, type=bool, help='Use sync batch normalization, only used in DDP')
-    parser.add_argument("--amp", default=True, type=bool, help="Use torch.cuda.amp for mixed precision training, only used in DDP")
+    parser.add_argument("--distributed", default=False, type=bool, help="Use DDP for training")
+    parser.add_argument("--sync_bn", default=False, type=bool, help='Use sync batch normalization, only used in DDP')
+    parser.add_argument("--amp", default=False, type=bool, help="Use torch.cuda.amp for mixed precision training, only used in DDP")
     parser.add_argument("--num_workers", default=4, type=int)
-    parser.add_argument("--device_id", default='0,1,2,3', type=str, help="Numbers of cuda want to use. if you only have one GPU, default=0")
+    parser.add_argument("--device_id", default='0', type=str, help="Numbers of cuda want to use. if you only have one GPU, default=0")
 
     ### Hyperparameter
     parser.add_argument("--input_shape", default=[640, 640], type=list, help='[H, W]. Image size for CNN after Data Augmentation')
-    parser.add_argument("--adam", default=True, type=bool, help="True: adam, False: SGD; If number of data < 2000 use adam, else use SGD")
+    parser.add_argument("--adam", default=True, type=bool, help="True: adamw, False: SGD; If number of data < 2000 use adamw, else use SGD")
     parser.add_argument("--lr", default=1e-3, type=float, help='Learning rate.')
     parser.add_argument("--lrf", default=1e-6, type=float, help='Final learning rate. If it is not None, use CosineAnnealing, else use lr_step')
     parser.add_argument("--num_epoch", default=100, type=int, help='total epochs to train')
-    parser.add_argument("--warmup_epoch", default=3, type=int, help='num epochs for warm up')
-    parser.add_argument("--num_classes", default=7, type=int, help='Actual category quantity plus 1 (background)')
+    parser.add_argument("--warmup_epoch", default=1, type=int, help='num epochs for warm up')
+    parser.add_argument("--num_classes", default=2, type=int, help='Actual category quantity plus 1 (background)')
     parser.add_argument("--batch_size", default=8, type=int, help='Total batchsize')
     parser.add_argument("--dataset", default='VOCdevkit', type=str, help='Dataset path')
     """
@@ -332,8 +336,8 @@ if __name__ == "__main__":
     parser.add_argument("--save_dir", default='logs', type=str, help='Models save path')
     parser.add_argument("--save_period", default=5, type=int)
     parser.add_argument("--resume", action='store_true', help='resume most recent training')
-    parser.add_argument("--dice_loss", default=True, type=bool, help='if num_classes<10, use this')
-    parser.add_argument("--focal_loss", default=True, type=bool, help='if all kinds of samples is unbalanced, use this, else ce_loss is default set')
+    parser.add_argument("--dice_loss", default=False, type=bool, help='if num_classes<10, use this')
+    parser.add_argument("--focal_loss", default=False, type=bool, help='if all kinds of samples is unbalanced, use this, else ce_loss is default set')
     parser.add_argument("--eval_period", default=5, type=int, help='Evaluate the performance of the valid datasets after training the number epoch')
 
     ###data aug during online training
@@ -345,7 +349,7 @@ if __name__ == "__main__":
     parser.add_argument("--rotate", default=0.5, type=float, help='Probability of using rotate for data enhancement, (-90, 90)')
     parser.add_argument("--flip_rl", default=0.5, type=float, help='Probability of using flip right and left for data enhancement')
     parser.add_argument("--flip_ud", default=0.0, type=float, help='Probability of using flip up and down for data enhancement')
-    parser.add_argument("--scale", default=(0.5, 1.5), type=tuple, help='Using scale for data enhancement, scaled randomly from default set (0.5, 1.5)')
+    parser.add_argument("--scale", default=(0.8, 1.2), type=tuple, help='Using scale for data enhancement, scaled randomly from default set (0.5, 1.5)')
     parser.add_argument("--color_transform", default=True, type=bool, help='Use color transform data enhancement')
     args = parser.parse_args()
     main(args)
