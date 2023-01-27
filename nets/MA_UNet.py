@@ -157,18 +157,6 @@ class MAUnet(nn.Module):
         x = self.final(x)
         return x
 
-    def _initialize_weights(self, *stages):
-        for modules in stages:
-            for module in modules.modules():
-                if isinstance(module, nn.Conv2d):
-                    nn.init.kaiming_normal_(module.weight)
-                    if module.bias is not None:
-                        module.bias.data.zero_()
-                elif isinstance(module, nn.BatchNorm2d):
-                    module.weight.data.fill_(1)
-                    module.bias.data.zero_()
-
-
 def MA_Unet_T(basicblock=sim_residual_block, depths=(1, 1, 1, 1, 1), dims=(24, 48, 96, 192, 384), trans_layers=(4, 1), num_classes=21, input_size=512, use_pos_embed=True):
     model = MAUnet(basicblock=basicblock, depths=depths, dims=dims, trans_layers=trans_layers, num_classes=num_classes, input_size=input_size, use_pos_embed=use_pos_embed)
     return model
