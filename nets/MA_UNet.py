@@ -23,47 +23,14 @@ class TransEncoder(nn.Module):
         x = x.transpose(1, 2).view(-1, self.channel, int(h), int(w))
         return x
 
-class CBAMLayer(nn.Module):
-    def __init__(self, channel, reduction=16, spatial_kernel=7):
-        super(CBAMLayer, self).__init__()
 
-        self.max_pool = nn.AdaptiveMaxPool2d(1)
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        # shared MLP
-        self.mlp = nn.Sequential(
-            nn.Conv2d(channel, channel // reduction, 1, bias=False),
-            nn.GELU(),
-            nn.Conv2d(channel // reduction, channel, 1, bias=False)
-        )
-        # spatial attention
-        self.conv = nn.Conv2d(2, 1, kernel_size=spatial_kernel, padding=spatial_kernel // 2, bias=False)
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        max_out = self.mlp(self.max_pool(x))
-        avg_out = self.mlp(self.avg_pool(x))
-        channel_out = self.sigmoid(max_out + avg_out)
-        x = channel_out * x
-        max_out, _ = torch.max(x, dim=1, keepdim=True)
-        avg_out = torch.mean(x, dim=1, keepdim=True)
-        spatial_out = self.sigmoid(self.conv(torch.cat([max_out, avg_out], dim=1)))
-        x = spatial_out * x
-        return x
-
-
-def conv3x3(in_planes, out_planes):
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=1, padding=1)
-
-def conv1x1(in_planes, out_planes):
-    return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=1), nn.BatchNorm2d(out_planes), nn.GELU())
-
-class simresidual_block(nn.Module):
+class sim_residual_block(nn.Module):
     def __init__(self, inplanes, planes):
-        super(simresidual_block, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes)
+        super(sim_residual_block, self).__init__()
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=3, stride=1, padding=1)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.relu = nn.GELU()
-        self.conv2 = conv3x3(planes, planes)
+        self.silu = nn.SiLU()
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1)
         self.bn2 = nn.BatchNorm2d(planes)
 
         self.activaton = nn.Sigmoid()
@@ -81,7 +48,7 @@ class simresidual_block(nn.Module):
         identity = x
         out = self.conv1(x)
         out = self.bn1(out)
-        out = self.relu(out)
+        out = self.silu(out)
         out = self.conv2(out)
 
         b, c, h, w = out.size()
@@ -95,27 +62,56 @@ class simresidual_block(nn.Module):
         if self.downsample is not None:
             identity = self.downsample(x)
         out += identity
-        out = self.relu(out)
+        out = self.silu(out)
         return out
 
+class AttentionLayer(nn.Module):
+    def __init__(self, channel, reduction=16, spatial_kernel=7):
+        super(AttentionLayer, self).__init__()
+        self.Dconv = nn.Conv2d(2*channel, channel, kernel_size=1)
+        self.bn = nn.BatchNorm2d(channel)
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        # shared MLP
+        self.mlp = nn.Sequential(
+            nn.Conv2d(channel, channel // reduction, 1, bias=False),
+            nn.SiLU(),
+            nn.Conv2d(channel // reduction, channel, 1, bias=False)
+        )
+        # spatial attention
+        self.conv = nn.Conv2d(2, 1, kernel_size=spatial_kernel, padding=spatial_kernel // 2, bias=False)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        x = self.bn(self.Dconv(x))
+        max_out = self.mlp(self.max_pool(x))
+        avg_out = self.mlp(self.avg_pool(x))
+        channel_out = self.sigmoid(max_out + avg_out)
+        x = channel_out * x
+        max_out, _ = torch.max(x, dim=1, keepdim=True)
+        avg_out = torch.mean(x, dim=1, keepdim=True)
+        spatial_out = self.sigmoid(self.conv(torch.cat([max_out, avg_out], dim=1)))
+        x = spatial_out * x
+        return x
 
 class unetUp(nn.Module):
     def __init__(self, basic_block, cusize, upsize, depths, index):
         super(unetUp, self).__init__()
         self.up = nn.ConvTranspose2d(cusize, upsize, 4, 2, 1, bias=False)
-        self.conv = nn.Sequential(basic_block(upsize*2, upsize),
-                *[basic_block(upsize, upsize) for j in range(1, depths[::-1][index])]
+
+        self.att = AttentionLayer(upsize)
+        self.conv2 = nn.Sequential(
+                *[basic_block(upsize, upsize) for j in range(depths[::-1][index])]
             )
-        self.att = CBAMLayer(upsize)
 
     def forward(self, inputs1, inputs2):
         outputs = torch.cat([inputs1, self.up(inputs2)], 1)
-        outputs = self.conv(outputs)
-        outputs = self.att(outputs) * outputs
+        outputs = self.att(outputs)
+        outputs = self.conv2(outputs)
         return outputs
 
 class MAUnet(nn.Module):
-    def __init__(self, basic_block, depths=(1, 1, 1, 1, 1, 1), dims=(64, 128, 128, 256, 256, 512), trans_layers=(4, 1), num_classes=21, input_size=640, use_pos_embed=True):
+    def __init__(self, basicblock=sim_residual_block, depths=(1, 1, 1, 1, 1, 1), dims=(32, 64, 128, 256, 512, 1024), trans_layers=(4, 1), num_classes=21, input_size=640, use_pos_embed=True):
         super(MAUnet, self).__init__()
         self.dims = dims
         patchsize = (input_size//(2**(len(depths)-1)))**2
@@ -124,7 +120,7 @@ class MAUnet(nn.Module):
             inplace = dims[i] if i != 0 else 3
             place = dims[i]
             stage = nn.Sequential(
-                *[basic_block(inplace, place) for j in range(depths[i])]
+                *[basicblock(inplace, place) for j in range(depths[i])]
             )
             self.stages.append(stage)
 
@@ -133,19 +129,19 @@ class MAUnet(nn.Module):
             self.downsample_layers.append(nn.Sequential(
                 nn.Conv2d(dims[i], dims[i + 1], kernel_size=3, stride=2, padding=1),
                 nn.BatchNorm2d(dims[i+1]),
-                nn.GELU()
+                nn.SiLU()
             ))
 
         if trans_layers[1] != 0:
             self.transformer_encoder = TransEncoder(channel=dims[-1], num_head=trans_layers[0], num_layer=trans_layers[1], num_patches=patchsize, use_pos_embed=use_pos_embed)
         else:
-            self.transformer_encoder = basic_block(dims[-1], dims[-1])
+            self.transformer_encoder = basicblock(dims[-1], dims[-1])
 
         self.up_layers = nn.ModuleList()
-        for i in range(len(dims)-1):  # i 0 1 2 3 4
-            cusize = dims[len(self.dims)-1-i]   # 5 4 3 2 1
-            upsize = dims[len(self.dims)-2-i]   # 4 3 2 1 0
-            self.up_layers.append(unetUp(basic_block, cusize, upsize, depths[:-1], i))
+        for i in range(len(dims)-1):  # 0 1 2 3 4
+            cusize = dims[len(self.dims) - 1 - i]  # 5 4 3 2 1
+            upsize = dims[len(self.dims) - 2 - i]  # 4 3 2 1 0
+            self.up_layers.append(unetUp(basicblock, cusize, upsize, depths[:-1], i))
         self.final = nn.Conv2d(dims[0], num_classes, 1)
 
     def forward(self, x):
@@ -161,37 +157,40 @@ class MAUnet(nn.Module):
         x = self.final(x)
         return x
 
+    def _initialize_weights(self, *stages):
+        for modules in stages:
+            for module in modules.modules():
+                if isinstance(module, nn.Conv2d):
+                    nn.init.kaiming_normal_(module.weight)
+                    if module.bias is not None:
+                        module.bias.data.zero_()
+                elif isinstance(module, nn.BatchNorm2d):
+                    module.weight.data.fill_(1)
+                    module.bias.data.zero_()
 
 
-def MA_Unet_T(basic_block=simresidual_block, depths=(1, 1, 1, 1, 1), dims=(24, 48, 96, 192, 384), trans_layers=(4, 1), num_classes=21, input_size=512, use_pos_embed=True):
-    model = MAUnet(basic_block=basic_block, depths=depths, dims=dims, trans_layers=trans_layers, num_classes=num_classes, input_size=input_size, use_pos_embed=use_pos_embed)
+def MA_Unet_T(basicblock=sim_residual_block, depths=(1, 1, 1, 1, 1), dims=(24, 48, 96, 192, 384), trans_layers=(4, 1), num_classes=21, input_size=512, use_pos_embed=True):
+    model = MAUnet(basicblock=basicblock, depths=depths, dims=dims, trans_layers=trans_layers, num_classes=num_classes, input_size=input_size, use_pos_embed=use_pos_embed)
     return model
 
-def MA_Unet_S(basic_block=simresidual_block, depths=(1, 1, 1, 1, 1, 1), dims=(32, 64, 128, 196, 384, 512), trans_layers=(4, 1), num_classes=21, input_size=640, use_pos_embed=True):
-    model = MAUnet(basic_block=basic_block, depths=depths, dims=dims, trans_layers=trans_layers, num_classes=num_classes, input_size=input_size, use_pos_embed=use_pos_embed)
+def MA_Unet_S(basicblock=sim_residual_block, depths=(1, 1, 1, 1, 1, 1), dims=(24, 48, 96, 192, 384, 768), trans_layers=(4, 1), num_classes=21, input_size=640, use_pos_embed=True):
+    model = MAUnet(basicblock=basicblock, depths=depths, dims=dims, trans_layers=trans_layers, num_classes=num_classes, input_size=input_size, use_pos_embed=use_pos_embed)
     return model
 
-def MA_Unet_B(basic_block=simresidual_block, depths=(1, 1, 2, 2, 1, 1), dims=(32, 64, 160, 256, 512, 768), trans_layers=(4, 1), num_classes=21, input_size=640, use_pos_embed=True):
-    model = MAUnet(basic_block=basic_block, depths=depths, dims=dims, trans_layers=trans_layers, num_classes=num_classes, input_size=input_size, use_pos_embed=use_pos_embed)
+def MA_Unet_B(basicblock=sim_residual_block, depths=(1, 2, 2, 1, 1, 1), dims=(32, 64, 128, 256, 512, 1024), trans_layers=(4, 1), num_classes=21, input_size=640, use_pos_embed=True):
+    model = MAUnet(basicblock=basicblock, depths=depths, dims=dims, trans_layers=trans_layers, num_classes=num_classes, input_size=input_size, use_pos_embed=use_pos_embed)
     return model
 
-def MA_Unet_L(basic_block=simresidual_block, depths=(1, 2, 2, 2, 1, 1), dims=(48, 96, 192, 384, 512, 1024), trans_layers=(8, 3), num_classes=21, input_size=640, use_pos_embed=True):
-    model = MAUnet(basic_block=basic_block, depths=depths, dims=dims, trans_layers=trans_layers, num_classes=num_classes, input_size=input_size, use_pos_embed=use_pos_embed)
-    return model
-
-def MA_Unet_X(basic_block=simresidual_block, depths=(1, 2, 2, 2, 2, 1), dims=(48, 96, 192, 384, 768, 1536), trans_layers=(8, 3), num_classes=21, input_size=800, use_pos_embed=True):
-    model = MAUnet(basic_block=basic_block, depths=depths, dims=dims, trans_layers=trans_layers, num_classes=num_classes, input_size=input_size, use_pos_embed=use_pos_embed)
+def MA_Unet_L(basicblock=sim_residual_block, depths=(1, 2, 2, 2, 2, 1), dims=(48, 96, 192, 384, 768, 1536), trans_layers=(8, 3), num_classes=21, input_size=800, use_pos_embed=True):
+    model = MAUnet(basicblock=basicblock, depths=depths, dims=dims, trans_layers=trans_layers, num_classes=num_classes, input_size=input_size, use_pos_embed=use_pos_embed)
     return model
 
 # If GPU has enough memory, you can extend depths and dims of model
 
-
-# model = MA_Unet_L(input_size=512)
+# model = MA_Unet_B()
 # # a = torch.randn(1, 3, 512, 512)
 # # y = model(a)
 # # print(y.size())
 # from torchinfo import summary
-# summary(model, input_size=(1, 3, 512, 512))
+# summary(model, input_size=(1, 3, 640, 640))
 
-# model = MA_Unet_S()
-# print(model)
