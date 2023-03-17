@@ -295,8 +295,8 @@ if __name__ == "__main__":
     ### Use MAE to pre-train
     parser.add_argument("--pre_training", default=False, type=bool, help='Use MAE to pre-train')
     parser.add_argument("--fill_color", default=(0, 0, 0), type=tuple, help='fill color in the hole')
-    parser.add_argument("--coeffi_num", default=2, type=int, help='coefficient of the number holes')
-    parser.add_argument("--hole_len", default=(5, 5), type=tuple)
+    parser.add_argument("--coeffi_num", default=6, type=int, help='coefficient of the number holes')
+    parser.add_argument("--hole_len", default=(20, 20), type=tuple)
     parser.add_argument("--MAE_loss", default='l2', type=str, help='l1, smooth l1, l2')
 
     ### DDP mode. If distributed=True training with DDP mode, use python -m torch.distributed.launch (torch.distributed.run, >=torch1.10) --nproc_per_node=number_GPUs train.py
