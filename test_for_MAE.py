@@ -16,13 +16,13 @@ from utils.utils import cvtColor, preprocess_input, resize_image
 '''
 This is just a test code,
 To test the restoration of masked images based on the MAE pre-training model, 
-and to observe the effect of the pre-training model.
+and to observe the performance of the pre-training model.
 '''
 
-model_path = '/local/sunyu/scale-unet/logs/exp-050-train_loss0.001-val_loss0.001.pth'  # pre-training model path
+model_path = 'logs/exp-050-train_loss0.001-val_loss0.001.pth'  # pre-training model path
 img_path = r'VOCdevkit/VOC2007/JPEGImages/05.png'  # test image
-coeffi_num = 2   # Coefficients of masked images
-hole_size = (5, 5)   # Size of masked area, (h, w)
+coeffi_num = 6   # Coefficients of masked images
+hole_size = (20, 20)   # Size of masked area, (h, w)
 fill_color = (0, 0, 0)
 
 # Select a training model, num_classes must equal 3
