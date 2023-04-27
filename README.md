@@ -32,4 +32,28 @@ Training
     `python train.py`
     * It is worth noting that in the hyperparameters, num_classes should be set to the number of categories plus 1. <br>
       For example, if you want to segmentation cat and dog in the images, although there are only two categories, <br>
-      you need to set it to 3, because 
+      you need to set it to 3, because the label of the background is 0. 
+
+Prediction and Validation
+------------------------
+See `predict.py` for details
+
+Details of Multi-Attention UNet
+------------------------
+You can learn the details of Multi-Attention UNet through the paper as follow, and please cite our papers if the code is useful for your papers. Thank you! <br>
+
+ * MDPI and ACS Style <br>
+Sun, Y.; Bi, F.; Gao, Y.; Chen, L.; Feng, S. A Multi-Attention UNet for Semantic Segmentation in Remote Sensing Images. Symmetry 2022, 14, 906. https://doi.org/10.3390/sym14050906 <br>
+
+ * AMA Style <br>
+Sun Y, Bi F, Gao Y, Chen L, Feng S. A Multi-Attention UNet for Semantic Segmentation in Remote Sensing Images. Symmetry. 2022; 14(5):906. https://doi.org/10.3390/sym14050906 <br>
+
+ * Chicago/Turabian Style <br>
+Yu Sun, Fukun Bi, Yangte Gao, Liang Chen, and Suting Feng. 2022. "A Multi-Attention UNet for Semantic Segmentation in Remote Sensing Images" Symmetry 14, no. 5: 906. https://doi.org/10.3390/sym14050906 <br>
+
+
+Reference
+------------------------
+https://github.com/bubbliiiing/unet-pytorch  <br>
+https://github.com/yassouali/pytorch-segmentation  <br>
+https://github.com/qubvel/segmentation_models.pytorch  <br>
