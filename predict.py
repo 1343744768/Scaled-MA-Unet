@@ -30,7 +30,7 @@ class Unet_tools(object):
             hsv_tuples = [(x / self.num_classes, 1., 1.) for x in range(self.num_classes)]
             self.colors = list(map(lambda x: colorsys.hsv_to_rgb(*x), hsv_tuples))
             self.colors = list(map(lambda x: (int(x[0] * 255), int(x[1] * 255), int(x[2] * 255)), self.colors))
-
+        self.colors = [x for sublist in self.colors for x in sublist]
         self.generate()
 
     def generate(self, onnx=False):
@@ -82,13 +82,9 @@ class Unet_tools(object):
                     int((self.input_shape[1] - nw) // 2): int((self.input_shape[1] - nw) // 2 + nw)]
             pr = cv2.resize(pr, (orininal_w, orininal_h), interpolation=cv2.INTER_LINEAR)
             pr = pr.argmax(axis=-1)
-        seg_img = np.zeros((np.shape(pr)[0], np.shape(pr)[1], 3))
-        for c in range(self.num_classes):
-            seg_img[:, :, 0] += ((pr[:, :] == c)*( self.colors[c][0] )).astype('uint8')
-            seg_img[:, :, 1] += ((pr[:, :] == c)*( self.colors[c][1] )).astype('uint8')
-            seg_img[:, :, 2] += ((pr[:, :] == c)*( self.colors[c][2] )).astype('uint8')
-
-        image = Image.fromarray(np.uint8(seg_img))
+        image = Image.fromarray(np.uint8(pr))
+        image.putpalette(self.colors)
+        image = image.convert('RGB')
         if self.blend:
             image = Image.blend(old_img,image,0.7)
         
