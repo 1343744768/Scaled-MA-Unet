@@ -310,12 +310,12 @@ if __name__ == "__main__":
     ### Hyperparameter
     parser.add_argument("--input_shape", default=[640, 640], type=list, help='[H, W]. Image size for CNN after Data Augmentation')
     parser.add_argument("--adam", default=True, type=bool, help="True: adamw, False: SGD; If number of data < 2000 use adamw, else use SGD")
-    parser.add_argument("--lr", default=1e-3, type=float, help='Learning rate.')
-    parser.add_argument("--lrf", default=1e-6, type=float, help='Final learning rate. If it is not None, use CosineAnnealing, else use lr_step')
-    parser.add_argument("--num_epoch", default=100, type=int, help='total epochs to train')
+    parser.add_argument("--lr", default=1e-4, type=float, help='Learning rate.')
+    parser.add_argument("--lrf", default=1e-7, type=float, help='Final learning rate. If it is not None, use CosineAnnealing, else use lr_step')
+    parser.add_argument("--num_epoch", default=200, type=int, help='total epochs to train')
     parser.add_argument("--warmup_epoch", default=1, type=int, help='num epochs for warm up')
     parser.add_argument("--num_classes", default=2, type=int, help='Actual category quantity plus 1 (background)')
-    parser.add_argument("--batch_size", default=8, type=int, help='Total batchsize')
+    parser.add_argument("--batch_size", default=16, type=int, help='Total batchsize')
     parser.add_argument("--dataset", default='VOCdevkit', type=str, help='Dataset path')
     """
     --dataset/
@@ -332,8 +332,8 @@ if __name__ == "__main__":
     parser.add_argument("--save_dir", default='logs', type=str, help='Models save path')
     parser.add_argument("--save_period", default=5, type=int)
     parser.add_argument("--resume", action='store_true', help='resume most recent training')
-    parser.add_argument("--dice_loss", default=False, type=bool, help='if num_classes<10, use this')
-    parser.add_argument("--focal_loss", default=False, type=bool, help='if all kinds of samples is unbalanced, use this, else ce_loss is default set')
+    parser.add_argument("--dice_loss", default=True, type=bool, help='if num_classes<10, use this')
+    parser.add_argument("--focal_loss", default=True, type=bool, help='if all kinds of samples is unbalanced, use this, else ce_loss is default set')
     parser.add_argument("--eval_period", default=5, type=int, help='Evaluate the performance of the valid datasets after training the number epoch')
 
     ###data aug during online training
