@@ -95,14 +95,12 @@ class AttentionLayer(nn.Module):
         return x
 
 class unetUp(nn.Module):
-    def __init__(self, basic_block, cusize, upsize, depths, index):
+    def __init__(self, basic_block, cusize, upsize):
         super(unetUp, self).__init__()
         self.up = nn.ConvTranspose2d(cusize, upsize, 4, 2, 1, bias=False)
 
         self.att = AttentionLayer(upsize)
-        self.conv2 = nn.Sequential(
-                *[basic_block(upsize, upsize) for j in range(depths[::-1][index])]
-            )
+        self.conv2 = basic_block(upsize, upsize)
 
     def forward(self, inputs1, inputs2):
         outputs = torch.cat([inputs1, self.up(inputs2)], 1)
@@ -141,7 +139,7 @@ class MAUnet(nn.Module):
         for i in range(len(dims)-1):  # 0 1 2 3 4
             cusize = dims[len(self.dims) - 1 - i]  # 5 4 3 2 1
             upsize = dims[len(self.dims) - 2 - i]  # 4 3 2 1 0
-            self.up_layers.append(unetUp(basicblock, cusize, upsize, depths[:-1], i))
+            self.up_layers.append(unetUp(basicblock, cusize, upsize))
         self.final = nn.Conv2d(dims[0], num_classes, 1)
 
     def forward(self, x):
