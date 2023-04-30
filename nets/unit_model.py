@@ -112,8 +112,8 @@ class Bottleneck(nn.Module):
     # Standard bottleneck
     def __init__(self, in_dim, out_dim, shortcut=True):
         super().__init__()
-        self.cv1 = DCv1(in_dim, out_dim)
-        self.cv2 = DCv1(out_dim, out_dim)
+        self.cv1 = CBA(in_dim, out_dim)
+        self.cv2 = CBA(out_dim, out_dim)
         self.add = shortcut and in_dim == out_dim
 
     def forward(self, x):
@@ -233,7 +233,7 @@ class AttentionLayer(nn.Module):
 
 
 class unetUp(nn.Module):
-    def __init__(self, basic_block, cusize, upsize, depths, index, up_='nearest'):
+    def __init__(self, basic_block, cusize, upsize, up_='nearest'):
         super(unetUp, self).__init__()
         if up_ == 'ConvT':
             self.up = nn.ConvTranspose2d(cusize, upsize, 4, 2, 1, bias=False)
@@ -242,9 +242,7 @@ class unetUp(nn.Module):
             self.up = nn.Upsample(scale_factor=2)
             n = 3
         self.att = AttentionLayer(n*upsize, upsize)
-        self.conv2 = nn.Sequential(
-                *[basic_block(upsize, upsize) for j in range(depths[::-1][index])]
-            )
+        self.conv2 = basic_block(upsize, upsize)
 
     def forward(self, inputs1, inputs2):
         outputs = torch.cat([inputs1, self.up(inputs2)], 1)
@@ -287,7 +285,7 @@ class MAUnet(nn.Module):
         for i in range(len(dims)-1):
             cusize = dims[len(self.dims) - 1 - i]
             upsize = dims[len(self.dims) - 2 - i]
-            self.up_layers.append(unetUp(basicblock, cusize, upsize, depths[:-1], i, up_))
+            self.up_layers.append(unetUp(basicblock, cusize, upsize, up_))
 
         self.seg_head = nn.Conv2d(dims[0], num_classes, 1)
 
@@ -315,7 +313,7 @@ def MA_Unet_S(basicblock=sim_residual_block, depths=(2, 2, 4, 2), dims=(64, 128,
     model = MAUnet(basicblock=basicblock, depths=depths, dims=dims, trans_layers=trans_layers, num_classes=num_classes, input_size=input_size, use_pos_embed=use_pos_embed)
     return model
 
-def MA_Unet_B(basicblock=sim_residual_block, depths=(2, 3, 6, 2, 1), dims=(64, 128, 256, 512, 512), trans_layers=(8, 6), num_classes=21, input_size=640, use_pos_embed=True):
+def MA_Unet_B(basicblock=sim_residual_block, depths=(1, 1, 1, 1, 1), dims=(64, 128, 256, 512, 512), trans_layers=(4, 1), num_classes=21, input_size=640, use_pos_embed=True):
     model = MAUnet(basicblock=basicblock, depths=depths, dims=dims, trans_layers=trans_layers, num_classes=num_classes, input_size=input_size, use_pos_embed=use_pos_embed)
     return model
 
