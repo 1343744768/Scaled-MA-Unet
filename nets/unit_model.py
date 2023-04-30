@@ -112,8 +112,8 @@ class Bottleneck(nn.Module):
     # Standard bottleneck
     def __init__(self, in_dim, out_dim, shortcut=True):
         super().__init__()
-        self.cv1 = CBA(in_dim, out_dim)
-        self.cv2 = CBA(out_dim, out_dim)
+        self.cv1 = DCv1(in_dim, out_dim)
+        self.cv2 = DCv1(out_dim, out_dim)
         self.add = shortcut and in_dim == out_dim
 
     def forward(self, x):
@@ -231,7 +231,6 @@ class AttentionLayer(nn.Module):
         x = spatial_out * x
         return x
 
-
 class unetUp(nn.Module):
     def __init__(self, basic_block, cusize, upsize, up_='nearest'):
         super(unetUp, self).__init__()
@@ -249,7 +248,6 @@ class unetUp(nn.Module):
         outputs = self.att(outputs)
         outputs = self.conv2(outputs)
         return outputs
-
 
 class MAUnet(nn.Module):
     def __init__(self, basicblock=None, depths=(1, 1, 1, 1), dims=(64, 128, 256, 512), trans_layers=(4, 1), num_classes=21, input_size=640, use_pos_embed=True, up_='ConvT'):
@@ -313,7 +311,7 @@ def MA_Unet_S(basicblock=sim_residual_block, depths=(2, 2, 4, 2), dims=(64, 128,
     model = MAUnet(basicblock=basicblock, depths=depths, dims=dims, trans_layers=trans_layers, num_classes=num_classes, input_size=input_size, use_pos_embed=use_pos_embed)
     return model
 
-def MA_Unet_B(basicblock=sim_residual_block, depths=(1, 1, 1, 1, 1), dims=(64, 128, 256, 512, 512), trans_layers=(4, 1), num_classes=21, input_size=640, use_pos_embed=True):
+def MA_Unet_B(basicblock=sim_residual_block, depths=(2, 3, 6, 2, 1), dims=(64, 128, 256, 512, 512), trans_layers=(8, 3), num_classes=21, input_size=640, use_pos_embed=True):
     model = MAUnet(basicblock=basicblock, depths=depths, dims=dims, trans_layers=trans_layers, num_classes=num_classes, input_size=input_size, use_pos_embed=use_pos_embed)
     return model
 
