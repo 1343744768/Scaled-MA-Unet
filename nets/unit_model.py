@@ -307,15 +307,15 @@ def MA_Unet_T(basicblock=sim_residual_block, depths=(1, 1, 1, 1), dims=(32, 64, 
     model = MAUnet(basicblock=basicblock, depths=depths, dims=dims, trans_layers=trans_layers, num_classes=num_classes, input_size=input_size, use_pos_embed=use_pos_embed)
     return model
 
-def MA_Unet_S(basicblock=sim_residual_block, depths=(2, 2, 4, 2), dims=(64, 128, 256, 512), trans_layers=(8, 3), num_classes=21, input_size=512, use_pos_embed=True):
+def MA_Unet_S(basicblock=sim_residual_block, depths=(2, 2, 6, 2), dims=(64, 128, 256, 512), trans_layers=(8, 3), num_classes=21, input_size=512, use_pos_embed=True):
     model = MAUnet(basicblock=basicblock, depths=depths, dims=dims, trans_layers=trans_layers, num_classes=num_classes, input_size=input_size, use_pos_embed=use_pos_embed)
     return model
 
-def MA_Unet_B(basicblock=sim_residual_block, depths=(2, 3, 6, 2, 1), dims=(64, 128, 256, 512, 512), trans_layers=(8, 3), num_classes=21, input_size=640, use_pos_embed=True):
+def MA_Unet_B(basicblock=sim_residual_block, depths=(3, 6, 9, 3, 1), dims=(64, 128, 256, 512, 512), trans_layers=(8, 3), num_classes=21, input_size=640, use_pos_embed=True):
     model = MAUnet(basicblock=basicblock, depths=depths, dims=dims, trans_layers=trans_layers, num_classes=num_classes, input_size=input_size, use_pos_embed=use_pos_embed)
     return model
 
-def MA_Unet_L(basicblock=sim_residual_block, depths=(2, 3, 9, 2, 1), dims=(64, 128, 256, 512, 1024), trans_layers=(16, 6), num_classes=21, input_size=800, use_pos_embed=True):
+def MA_Unet_L(basicblock=sim_residual_block, depths=(3, 9, 12, 9, 1), dims=(64, 128, 256, 512, 1024), trans_layers=(16, 6), num_classes=21, input_size=800, use_pos_embed=True):
     model = MAUnet(basicblock=basicblock, depths=depths, dims=dims, trans_layers=trans_layers, num_classes=num_classes, input_size=input_size, use_pos_embed=use_pos_embed)
     return model
 
