@@ -112,8 +112,8 @@ class Bottleneck(nn.Module):
     # Standard bottleneck
     def __init__(self, in_dim, out_dim, shortcut=True):
         super().__init__()
-        self.cv1 = DCv1(in_dim, out_dim)
-        self.cv2 = DCv1(out_dim, out_dim)
+        self.cv1 = CBA(in_dim, out_dim)
+        self.cv2 = CBA(out_dim, out_dim)
         self.add = shortcut and in_dim == out_dim
 
     def forward(self, x):
