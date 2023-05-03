@@ -55,7 +55,7 @@ def Dice_loss(inputs, target, beta=1, smooth = 1e-5):
     dice_loss = 1 - torch.mean(score)
     return dice_loss
 
-def weights_init(net, init_type='normal', init_gain=0.02):
+def weights_init(net, init_type='kaiming', init_gain=0.02):
     def init_func(m):
         classname = m.__class__.__name__
         if hasattr(m, 'weight') and classname.find('Conv') != -1:
