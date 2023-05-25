@@ -27,11 +27,15 @@ Training
 ------------------------
 1. Training with Multi-GPU. （recommended） <br>
    set distributed = True <br>
-    `python -m torch.distributed.launch --nproc_per_node=num_gpu train.py` <br>
+    ```
+    python -m torch.distributed.launch --nproc_per_node=num_gpu train.py
+    ```
     If the memory is not released after training, use `pgrep python | xargs kill -s 9` <br>
  
 2. Training with single GPU. <br>
-    `python train.py`
+    ```
+    python train.py
+    ```
     * It is worth noting that in the hyperparameters, num_classes should be set to the number of categories plus 1. <br>
       For example, if you want to segmentation cat and dog in the images, although there are only two categories, <br>
       you need to set it to 3, because the label of the background is 0. 
