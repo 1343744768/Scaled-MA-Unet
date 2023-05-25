@@ -27,7 +27,7 @@ Training
 ------------------------
 1. Training with Multi-GPU. （recommended） <br>
     ```
-    set distributed = True <br>
+    set distributed = True
     python -m torch.distributed.launch --nproc_per_node=num_gpu train.py
     ```
     If the memory is not released after training, use `pgrep python | xargs kill -s 9` <br>
