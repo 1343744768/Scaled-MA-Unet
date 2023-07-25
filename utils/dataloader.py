@@ -208,7 +208,7 @@ class UnetDataset(Dataset):
         lab_mode = os.listdir(os.path.join(self.dataset_path, 'VOC2007/SegmentationClass'))[0].split('.')[1]
 
         for im in img_list:
-            img = os.path.join(img_path, im+'.'+img_mode).convert('RGB')
+            img = os.path.join(img_path, im+'.'+img_mode)   # .convert('RGB')
             lab = os.path.join(lab_path, im+'.'+lab_mode)
             # 打开图片
             image = Image.open(img)
