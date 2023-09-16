@@ -7,7 +7,7 @@ class TransEncoder(nn.Module):
         super(TransEncoder, self).__init__()
         self.channel = channel
         self.use_pos_embed = use_pos_embed
-        translayer = nn.TransformerEncoderLayer(d_model=channel, nhead=num_head)
+        translayer = nn.TransformerEncoderLayer(d_model=channel, nhead=num_head, batch_first=True)
         self.trans = nn.TransformerEncoder(translayer, num_layers=num_layer)
         if self.use_pos_embed:
             self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, channel))
