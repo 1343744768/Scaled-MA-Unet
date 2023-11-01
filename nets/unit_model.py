@@ -1,90 +1,28 @@
 import torch
 import torch.nn as nn
-import warnings
 import torch.nn.functional as F
-from torchvision.ops import deform_conv2d
-import torchvision.ops
 
+
+# class CBA(nn.Module):
+#     def __init__(self, in_dim, out_dim, k=3, s=1, p=1, g=1, d=1, act=True):
+#         super().__init__()
+#         self.conv = nn.Conv2d(in_dim, out_dim, k, s, p, groups=g, dilation=d, bias=False)
+#         self.bn = nn.BatchNorm2d(out_dim)
+#         self.act = nn.LeakyReLU() if act else nn.Identity()
+#
+#     def forward(self, x):
+#         return self.act(self.bn(self.conv(x)))
 
 class CBA(nn.Module):
-    def __init__(self, in_dim, out_dim, k=3, s=1, p=1, g=1, d=1, act=True):
+    def __init__(self, in_dim, out_dim, k=3, s=1, p=1, g=1, d=1, bn=True, bn_first=False, act=True):
         super().__init__()
+        self.bn_first = bn_first
         self.conv = nn.Conv2d(in_dim, out_dim, k, s, p, groups=g, dilation=d, bias=False)
-        self.bn = nn.BatchNorm2d(out_dim)
-        self.act = nn.LeakyReLU() if act else nn.Identity()
+        self.bn = nn.BatchNorm2d(out_dim) if bn else nn.Identity()
+        self.act = nn.GELU() if act else nn.Identity()
 
     def forward(self, x):
-        return self.act(self.bn(self.conv(x)))
-
-class DCv1(nn.Module):
-    def __init__(self,
-                 in_channels,
-                 out_channels,
-                 kernel_size=3,
-                 stride=1,
-                 padding=1,
-                 bias=False):
-        super(DCv1, self).__init__()
-
-        self.stride = stride if type(stride) == tuple else (stride, stride)
-        self.padding = padding
-        self.offset_conv = nn.Conv2d(in_channels,
-                                     2 * kernel_size * kernel_size,
-                                     kernel_size=kernel_size,
-                                     stride=stride,
-                                     padding=self.padding,
-                                     bias=True)
-
-        nn.init.constant_(self.offset_conv.weight, 0.)
-        nn.init.constant_(self.offset_conv.bias, 0.)
-        self.regular_conv = nn.Conv2d(in_channels=in_channels,
-                                      out_channels=out_channels,
-                                      kernel_size=kernel_size,
-                                      stride=stride,
-                                      padding=self.padding,
-                                      bias=bias)
-
-    def forward(self, x):
-        offset = self.offset_conv(x)
-        x = torchvision.ops.deform_conv2d(input=x.float(),
-                                          offset=offset.float(),
-                                          weight=self.regular_conv.weight,
-                                          bias=self.regular_conv.bias,
-                                          padding=(self.padding, self.padding),
-                                          stride=self.stride,
-                                          )
-        return x
-
-
-class DCv2(nn.Module):
-    def __init__(self, in_dim, out_dim, kernel_size=3, stride=1, padding=1, dilation=1, groups=1, bias=True, offset_groups=1, with_mask=True):
-        super().__init__()
-        assert in_dim % groups == 0
-        self.stride = stride
-        self.padding = padding
-        self.dilation = dilation
-        self.weight = nn.Parameter(torch.empty(out_dim, in_dim // groups, kernel_size, kernel_size))
-        if bias:
-            self.bias = nn.Parameter(torch.empty(out_dim))
-        else:
-            self.bias = None
-
-        self.with_mask = with_mask
-        if with_mask:
-            self.param_generator = nn.Conv2d(in_dim, 3 * offset_groups * kernel_size * kernel_size, 3, 1, 1)
-        else:
-            self.param_generator = nn.Conv2d(in_dim, 2 * offset_groups * kernel_size * kernel_size, 3, 1, 1)
-
-    def forward(self, x):
-        if self.with_mask:
-            oh, ow, mask = self.param_generator(x).chunk(3, dim=1)
-            offset = torch.cat([oh, ow], dim=1)
-            mask = mask.sigmoid()
-        else:
-            offset = self.param_generator(x)
-            mask = None
-        x = deform_conv2d(x, offset=offset, weight=self.weight, bias=self.bias, stride=self.stride, padding=self.padding, dilation=self.dilation, mask=mask)
-        return x
+        return self.bn(self.act(self.conv(x))) if self.bn_first else self.act(self.bn(self.conv(x)))
 
 
 class TransEncoder(nn.Module):
@@ -92,7 +30,7 @@ class TransEncoder(nn.Module):
         super(TransEncoder, self).__init__()
         self.channel = channel
         self.use_pos_embed = use_pos_embed
-        translayer = nn.TransformerEncoderLayer(d_model=channel, nhead=num_head)
+        translayer = nn.TransformerEncoderLayer(d_model=channel, nhead=num_head, batch_first=True)
         self.trans = nn.TransformerEncoder(translayer, num_layers=num_layer)
         if self.use_pos_embed:
             self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, channel))
@@ -108,168 +46,94 @@ class TransEncoder(nn.Module):
         x = x.transpose(1, 2).view(-1, self.channel, int(h), int(w))
         return x
 
-class Bottleneck(nn.Module):
-    # Standard bottleneck
-    def __init__(self, in_dim, out_dim, shortcut=True):
-        super().__init__()
-        self.cv1 = CBA(in_dim, out_dim)
-        self.cv2 = CBA(out_dim, out_dim)
-        self.add = shortcut and in_dim == out_dim
 
-    def forward(self, x):
-        return x + self.cv2(self.cv1(x)) if self.add else self.cv2(self.cv1(x))
-
-
-class C3(nn.Module):
-    def __init__(self, inplanes, planes, shortcut=True):
-        super().__init__()
-        self.cv1 = CBA(inplanes, int(planes/2), 1, 1, 0)
-        self.cv2 = CBA(inplanes, int(planes/2), 1, 1, 0)
-        self.cv3 = CBA(planes, planes, 1, 1, 0)
-        self.m = Bottleneck(int(planes/2), int(planes/2), shortcut)
-
-    def forward(self, x):
-        return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), 1))
-
-
-class SPPF(nn.Module):
-    def __init__(self, c1, c2, k=5):
-        super().__init__()
-        c_ = c1 // 2
-        self.cv1 = CBA(c1, c_, 1, 1, 0)
-        self.cv2 = CBA(c_ * 4, c2, 1, 1, 0)
-        self.m = nn.MaxPool2d(kernel_size=k, stride=1, padding=k // 2)
-
-    def forward(self, x):
-        x = self.cv1(x)
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore')
-            y1 = self.m(x)
-            y2 = self.m(y1)
-            return self.cv2(torch.cat((x, y1, y2, self.m(y2)), 1))
-
-
-class res_dcblock(nn.Module):
+class res_block(nn.Module):
     def __init__(self, inplanes, planes):
-        super(res_dcblock, self).__init__()
-        self.conv1 = nn.Sequential(DCv1(inplanes, planes), nn.BatchNorm2d(planes), nn.LeakyReLU())
-        self.conv2 = nn.Sequential(DCv1(planes, planes), nn.BatchNorm2d(planes))
-        self.act = nn.LeakyReLU()
-        if inplanes != planes:
-            self.downsample = CBA(inplanes, planes, k=1, s=1, p=0, g=1, d=1, act=False)
-        else:
-            self.downsample = None
+        super(res_block, self).__init__()
+        self.conv1 = CBA(inplanes, planes, act=False)
+        self.conv2 = CBA(planes, planes, bn=False)
 
     def forward(self, x):
         identity = x
         out = self.conv1(x)
         out = self.conv2(out)
-        if self.downsample is not None:
-            identity = self.downsample(x)
         out += identity
-        out = self.act(out)
         return out
 
 
-class sim_residual_block(nn.Module):
-    def __init__(self, inplanes, planes):
-        super(sim_residual_block, self).__init__()
-        self.conv1 = CBA(inplanes, planes)
-        self.conv2 = CBA(planes, planes, act=False)
+class basicblock(nn.Module):
+    def __init__(self, inplanes, branch_ratio=0.25):
+        super(basicblock, self).__init__()
 
-        # self.activaton = nn.Sigmoid()
-        # self.e_lambda = 1e-4
-
-        if inplanes != planes:
-            self.downsample = CBA(inplanes, planes, k=1, s=1, p=0, g=1, d=1, act=False)
-        else:
-            self.downsample = None
-
-    def forward(self, x):
-        identity = x
-        out = self.conv1(x)
-        out = self.conv2(out)
-
-        # b, c, h, w = out.size()
-        # n = w * h - 1
-        # x_minus_mu_square = (out - out.mean(dim=[2, 3], keepdim=True)).pow(2)
-        # y = x_minus_mu_square / (4 * (x_minus_mu_square.sum(dim=[2, 3], keepdim=True) / n + self.e_lambda)) + 0.5
-        # out = out * self.activaton(y)
-
-        if self.downsample is not None:
-            identity = self.downsample(x)
-        out += identity
-        out = F.leaky_relu(out)
-        return out
-
-
-class AttentionLayer(nn.Module):
-    def __init__(self, inchannel, channel, reduction=16, spatial_kernel=7):
-        super(AttentionLayer, self).__init__()
-        self.Dconv = CBA(inchannel, channel, 1, 1, 0)
-        self.max_pool = nn.AdaptiveMaxPool2d(1)
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        # shared MLP
-        self.mlp = nn.Sequential(
-            nn.Conv2d(channel, channel // reduction, 1, bias=False),
-            nn.LeakyReLU(),
-            nn.Conv2d(channel // reduction, channel, 1, bias=False)
-        )
-        # spatial attention
-        self.conv = nn.Conv2d(2, 1, kernel_size=spatial_kernel, padding=spatial_kernel // 2, bias=False)
-        self.sigmoid = nn.Sigmoid()
+        gc = int(inplanes * branch_ratio)  # channel numbers of a convolution branch
+        self.dwconv_hw = nn.Conv2d(gc, gc, kernel_size=(3, 3), padding=(1, 1), groups=gc)
+        self.dwconv_w = nn.Conv2d(gc, gc, kernel_size=(7, 7), padding=(3, 3), groups=gc)
+        self.dwconv_h = nn.Conv2d(gc, gc, kernel_size=(11, 11), padding=(5, 5), groups=gc)
+        self.split_indexes = (inplanes - 3 * gc, gc, gc, gc)
+        self.bn = nn.BatchNorm2d(inplanes)
+        self.mlp = nn.Sequential(nn.Conv2d(inplanes, 4 * inplanes, kernel_size=1, stride=1, padding=0),
+                                 nn.GELU(),
+                                 nn.Conv2d(4 * inplanes, inplanes, kernel_size=1, stride=1, padding=0),
+                                 nn.BatchNorm2d(inplanes)
+                                 )
+        self.gamma = nn.Parameter(1e-6 * torch.ones((inplanes)), requires_grad=True)
 
     def forward(self, x):
-        x = self.Dconv(x)
-        max_out = self.mlp(self.max_pool(x))
-        avg_out = self.mlp(self.avg_pool(x))
-        channel_out = self.sigmoid(max_out + avg_out)
-        x = channel_out * x
-        max_out, _ = torch.max(x, dim=1, keepdim=True)
-        avg_out = torch.mean(x, dim=1, keepdim=True)
-        spatial_out = self.sigmoid(self.conv(torch.cat([max_out, avg_out], dim=1)))
-        x = spatial_out * x
-        return x
+        short_cut = x
+        x_id, x_hw, x_w, x_h = torch.split(x, self.split_indexes, dim=1)
+        x_n = torch.cat((x_id, self.dwconv_hw(x_hw), self.dwconv_w(x_w), self.dwconv_h(x_h)), dim=1)
+        x_n = self.bn(x_n)
+        x_n = self.mlp(x_n)
+        x_n = x_n.mul(self.gamma.reshape(1, -1, 1, 1))
+        x_n += short_cut
+        return x_n
+
 
 class unetUp(nn.Module):
-    def __init__(self, basic_block, cusize, upsize, up_='nearest'):
+    def __init__(self, cusize, upsize, up_='ConvT', k=4, s=2, p=1):
         super(unetUp, self).__init__()
         if up_ == 'ConvT':
-            self.up = nn.ConvTranspose2d(cusize, upsize, 4, 2, 1, bias=False)
+            self.up = nn.ConvTranspose2d(cusize, upsize, k, s, p, bias=False)
             n = 2
         else:
             self.up = nn.Upsample(scale_factor=2)
             n = 3
-        self.att = AttentionLayer(n*upsize, upsize)
-        self.conv2 = basic_block(upsize, upsize)
+        self.conv1 = CBA(n * upsize, upsize, act=False)
+        self.gamma = nn.Parameter(1e-6 * torch.ones((upsize)), requires_grad=True)
+        self.conv2 = CBA(upsize, upsize, bn=False)
 
     def forward(self, inputs1, inputs2):
         outputs = torch.cat([inputs1, self.up(inputs2)], 1)
-        outputs = self.att(outputs)
+        outputs = self.conv1(outputs)
+        outputs = outputs.mul(self.gamma.reshape(1, -1, 1, 1))
         outputs = self.conv2(outputs)
         return outputs
 
+
 class MAUnet(nn.Module):
-    def __init__(self, basicblock=None, depths=(1, 1, 1, 1), dims=(64, 128, 256, 512), trans_layers=(4, 1), num_classes=21, input_size=640, use_pos_embed=True, up_='ConvT'):
+    def __init__(self, basicblock=None, depths=(1, 1, 1, 1), dims=(64, 128, 256, 512), trans_layers=(4, 1),
+                 num_classes=21, input_size=640, use_pos_embed=True, up_='ConvT'):
         super(MAUnet, self).__init__()
         self.dims = dims
-        patchsize = (input_size//(2**(len(depths))))**2
-        self.down = CBA(3, dims[0], 6, 2, 2)
+        patchsize = (input_size // (2 ** len(depths))) ** 2
+        self.down = CBA(3, dims[0], 3, 2, 1)
         self.stages = nn.ModuleList()
 
-        for i in range(len(dims)-1):
+        for i in range(len(dims) - 1):
             stage = nn.Sequential(
-                *[basicblock(dims[i], dims[i]) for j in range(depths[i])]
+                *[basicblock(dims[i]) for j in range(depths[i])]
             )
             self.stages.append(stage)
 
         self.downsample_layers = nn.ModuleList()
 
-        for i in range(len(dims)-1):
-            self.downsample_layers.append(CBA(dims[i], dims[i + 1], 3, 2, 1))
+        for i in range(len(dims) - 1):  # 0 1 2
+            self.downsample_layers.append(CBA(dims[i], dims[i + 1], 3, 2, 1, bn_first=True, act=False))
 
         if trans_layers[1] != 0:
-            self.transformer_encoder = TransEncoder(channel=dims[-1], num_head=trans_layers[0], num_layer=trans_layers[1], num_patches=patchsize, use_pos_embed=use_pos_embed)
+            self.transformer_encoder = TransEncoder(channel=dims[-1], num_head=trans_layers[0],
+                                                    num_layer=trans_layers[1], num_patches=patchsize,
+                                                    use_pos_embed=use_pos_embed)
         else:
             self.transformer_encoder = basicblock(dims[-1], dims[-1])
 
@@ -280,43 +144,55 @@ class MAUnet(nn.Module):
         else:
             self.up = nn.Upsample(scale_factor=2)
 
-        for i in range(len(dims)-1):
+        for i in range(len(dims) - 1):
             cusize = dims[len(self.dims) - 1 - i]
             upsize = dims[len(self.dims) - 2 - i]
-            self.up_layers.append(unetUp(basicblock, cusize, upsize, up_))
+            self.up_layers.append(unetUp(cusize, upsize, up_))
 
         self.seg_head = nn.Conv2d(dims[0], num_classes, 1)
 
     def forward(self, x):
         x = self.down(x)
         layers = []
-        for i in range(len(self.dims)-1):
+        for i in range(len(self.dims) - 1):
             x = self.stages[i](x)
             layers.append(x)
             x = self.downsample_layers[i](x)
 
         x = self.transformer_encoder(x)
 
-        for i in range(len(self.dims)-1):
-            x = self.up_layers[i](layers[len(self.dims)-2-i], x)
+        for i in range(len(self.dims) - 1):
+            x = self.up_layers[i](layers[len(self.dims) - 2 - i], x)
         x = self.up(x)
         x = self.seg_head(x)
         return x
 
-def MA_Unet_T(basicblock=sim_residual_block, depths=(1, 1, 1, 1), dims=(32, 64, 128, 256), trans_layers=(4, 1), num_classes=21, input_size=512, use_pos_embed=True):
-    model = MAUnet(basicblock=basicblock, depths=depths, dims=dims, trans_layers=trans_layers, num_classes=num_classes, input_size=input_size, use_pos_embed=use_pos_embed)
+
+def MA_Unet_T(basicblock=basicblock, depths=(2, 2, 2, 2), dims=(64, 128, 256, 512), trans_layers=(4, 1), num_classes=21,
+              input_size=512, use_pos_embed=True):
+    model = MAUnet(basicblock=basicblock, depths=depths, dims=dims, trans_layers=trans_layers, num_classes=num_classes,
+                   input_size=input_size, use_pos_embed=use_pos_embed)
     return model
 
-def MA_Unet_S(basicblock=sim_residual_block, depths=(2, 2, 6, 2), dims=(64, 128, 256, 512), trans_layers=(8, 3), num_classes=21, input_size=512, use_pos_embed=True):
-    model = MAUnet(basicblock=basicblock, depths=depths, dims=dims, trans_layers=trans_layers, num_classes=num_classes, input_size=input_size, use_pos_embed=use_pos_embed)
+
+def MA_Unet_S(basicblock=basicblock, depths=(3, 3, 6, 9, 3), dims=(48, 96, 192, 384, 768), trans_layers=(8, 3), num_classes=21,
+              input_size=640, use_pos_embed=True):
+    model = MAUnet(basicblock=basicblock, depths=depths, dims=dims, trans_layers=trans_layers, num_classes=num_classes,
+                   input_size=input_size, use_pos_embed=use_pos_embed)
     return model
 
-def MA_Unet_B(basicblock=sim_residual_block, depths=(3, 6, 9, 3, 1), dims=(64, 128, 256, 512, 512), trans_layers=(8, 3), num_classes=21, input_size=640, use_pos_embed=True):
-    model = MAUnet(basicblock=basicblock, depths=depths, dims=dims, trans_layers=trans_layers, num_classes=num_classes, input_size=input_size, use_pos_embed=use_pos_embed)
+
+def MA_Unet_B(basicblock=basicblock, depths=(3, 6, 9, 9, 6), dims=(64, 128, 256, 512, 1024), trans_layers=(8, 6),
+              num_classes=21, input_size=800, use_pos_embed=True):
+    model = MAUnet(basicblock=basicblock, depths=depths, dims=dims, trans_layers=trans_layers, num_classes=num_classes,
+                   input_size=input_size, use_pos_embed=use_pos_embed)
     return model
 
-def MA_Unet_L(basicblock=sim_residual_block, depths=(3, 9, 12, 9, 1), dims=(64, 128, 256, 512, 1024), trans_layers=(16, 6), num_classes=21, input_size=800, use_pos_embed=True):
-    model = MAUnet(basicblock=basicblock, depths=depths, dims=dims, trans_layers=trans_layers, num_classes=num_classes, input_size=input_size, use_pos_embed=use_pos_embed)
+
+def MA_Unet_L(basicblock=basicblock, depths=(6, 6, 9, 12, 6), dims=(96, 192, 384, 768, 1536), trans_layers=(16, 6),
+              num_classes=21, input_size=1024, use_pos_embed=True):
+    model = MAUnet(basicblock=basicblock, depths=depths, dims=dims, trans_layers=trans_layers, num_classes=num_classes,
+                   input_size=input_size, use_pos_embed=use_pos_embed)
     return model
 
 # If GPU has enough memory, you can extend depths and dims of model
